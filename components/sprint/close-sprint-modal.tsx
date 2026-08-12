@@ -1,0 +1,467 @@
+"use client";
+
+import { CheckCircleIcon, ClockIcon, WarningIcon } from "@phosphor-icons/react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  closeSprint,
+  getSprintSettings,
+  getSprints,
+  getSprintWithTasks,
+  markAllSprintTasksDone,
+} from "@/app/actions/sprint";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type IncompleteStrategy =
+  | "move_to_backlog"
+  | "move_to_next_sprint"
+  | "leave_as_is";
+
+interface PlannedSprint {
+  id: string;
+  name: string;
+}
+
+interface CloseSprintModalProps {
+  listId: string;
+  onClosed: () => void;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+  spaceId: string;
+  sprintId: string;
+  sprintName: string;
+  workspaceId: string;
+}
+
+type Step = 1 | 2;
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export function CloseSprintModal({
+  open,
+  onOpenChange,
+  workspaceId,
+  spaceId,
+  listId,
+  sprintId,
+  sprintName,
+  onClosed,
+}: CloseSprintModalProps) {
+  const [totalTasks, setTotalTasks] = useState(0);
+  const [closedTasks, setClosedTasks] = useState(0);
+  const [loadingData, setLoadingData] = useState(false);
+  // When the space has "Auto-create next sprint" enabled, closing this sprint
+  // creates the next one automatically — so we don't require an existing target.
+  const [autoCreateNext, setAutoCreateNext] = useState(false);
+
+  const [step, setStep] = useState<Step>(1);
+  const [strategy, setStrategy] =
+    useState<IncompleteStrategy>("move_to_backlog");
+  const [plannedSprints, setPlannedSprints] = useState<PlannedSprint[]>([]);
+  const [targetSprintId, setTargetSprintId] = useState("");
+  const [loadingPlanned, setLoadingPlanned] = useState(false);
+
+  const [markingDone, setMarkingDone] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const incompleteTasks = totalTasks - closedTasks;
+
+  const loadSprintData = useCallback(async () => {
+    setLoadingData(true);
+    try {
+      const [result, settings] = await Promise.all([
+        getSprintWithTasks(workspaceId, spaceId, sprintId),
+        getSprintSettings(workspaceId, spaceId),
+      ]);
+      if (!("error" in settings)) {
+        setAutoCreateNext(settings.sprintAutoCreateNext);
+      }
+      if ("error" in result) {
+        return;
+      }
+      const total = result.tasks.length;
+      const closed = result.tasks.filter(
+        (t) => t.statusType === "CLOSED"
+      ).length;
+      setTotalTasks(total);
+      setClosedTasks(closed);
+    } catch {
+      // non-fatal, show zeros
+    } finally {
+      setLoadingData(false);
+    }
+  }, [workspaceId, spaceId, sprintId]);
+
+  const loadPlannedSprints = useCallback(async () => {
+    setLoadingPlanned(true);
+    try {
+      const result = await getSprints(workspaceId, spaceId);
+      if ("error" in result) {
+        return;
+      }
+      const planned = result.sprints
+        .filter((s) => s.status === "PLANNED")
+        .map((s) => ({ id: s.id, name: s.name }));
+      setPlannedSprints(planned);
+      // Functional update so this callback doesn't need targetSprintId as a
+      // dependency (which would change identity — and re-trigger the effect
+      // below — every time a target is picked).
+      setTargetSprintId((current) =>
+        planned.length > 0 && !current ? planned[0].id : current
+      );
+    } catch {
+      // non-fatal
+    } finally {
+      setLoadingPlanned(false);
+    }
+  }, [workspaceId, spaceId]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setStep(1);
+    setStrategy("move_to_backlog");
+    setTargetSprintId("");
+    setError(null);
+    void loadSprintData();
+  }, [open, loadSprintData]);
+
+  useEffect(() => {
+    if (step === 2 && strategy === "move_to_next_sprint") {
+      void loadPlannedSprints();
+    }
+  }, [step, strategy, loadPlannedSprints]);
+
+  async function handleMarkAllDone() {
+    setMarkingDone(true);
+    setError(null);
+    try {
+      const result = await markAllSprintTasksDone(
+        workspaceId,
+        spaceId,
+        listId,
+        sprintId
+      );
+      if ("error" in result) {
+        setError(result.error);
+        return;
+      }
+      await loadSprintData();
+    } catch {
+      setError("Failed to mark tasks as done. Please try again.");
+    } finally {
+      setMarkingDone(false);
+    }
+  }
+
+  function handleContinue() {
+    if (incompleteTasks === 0) {
+      void handleClose("move_to_backlog");
+    } else {
+      setStep(2);
+    }
+  }
+
+  async function handleClose(overrideStrategy?: IncompleteStrategy) {
+    const finalStrategy = overrideStrategy ?? strategy;
+    const finalTarget =
+      finalStrategy === "move_to_next_sprint" ? targetSprintId : undefined;
+
+    // A target is only required when we won't be auto-creating the next sprint.
+    if (
+      finalStrategy === "move_to_next_sprint" &&
+      !finalTarget &&
+      !autoCreateNext
+    ) {
+      setError("Please select a planned sprint to move tasks into.");
+      return;
+    }
+
+    setClosing(true);
+    setError(null);
+    try {
+      const result = await closeSprint(
+        workspaceId,
+        spaceId,
+        sprintId,
+        finalStrategy,
+        finalTarget
+      );
+      if ("error" in result) {
+        setError(result.error);
+        return;
+      }
+      onClosed();
+      onOpenChange(false);
+    } catch {
+      setError("Failed to close sprint. Please try again.");
+    } finally {
+      setClosing(false);
+    }
+  }
+
+  return (
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent className="sm:max-w-115">
+        <DialogHeader>
+          <DialogTitle className="text-base">
+            Close Sprint —{" "}
+            <span className="text-base-content/60 font-normal">
+              {sprintName}
+            </span>
+          </DialogTitle>
+        </DialogHeader>
+
+        {/* ── Step 1: Summary ─────────────────────────────────────────────── */}
+        {step === 1 && (
+          <div className="space-y-5 py-1">
+            {loadingData ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              </div>
+            ) : (
+              <>
+                {/* Task summary */}
+                <div className="rounded-lg border bg-elevated p-4 space-y-3">
+                  <div className="flex items-center gap-2.5">
+                    <CheckCircleIcon
+                      className="size-4 text-green-500 shrink-0"
+                      weight="fill"
+                    />
+                    <span className="text-sm">
+                      <span className="font-semibold">{closedTasks}</span>{" "}
+                      {closedTasks === 1 ? "task" : "tasks"} completed
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2.5">
+                    <ClockIcon
+                      className="size-4 text-amber-500 shrink-0"
+                      weight="fill"
+                    />
+                    <span className="text-sm">
+                      <span className="font-semibold">{incompleteTasks}</span>{" "}
+                      {incompleteTasks === 1 ? "task" : "tasks"} still
+                      incomplete
+                    </span>
+                  </div>
+                </div>
+
+                {/* Mark all done shortcut */}
+                {incompleteTasks > 0 && (
+                  <div className="rounded-md bg-base-200/50 p-3 space-y-2">
+                    <p className="text-sm text-base-content/60">
+                      Want to wrap up cleanly? Mark all incomplete tasks as done
+                      before closing.
+                    </p>
+                    <Button
+                      className="w-full"
+                      disabled={markingDone}
+                      onClick={handleMarkAllDone}
+                      size="sm"
+                      variant="secondary"
+                    >
+                      {markingDone
+                        ? "Marking…"
+                        : `Mark all ${incompleteTasks} incomplete ${incompleteTasks === 1 ? "task" : "tasks"} as Done`}
+                    </Button>
+                  </div>
+                )}
+
+                {error && (
+                  <p className="rounded-md bg-error/10 px-3 py-2 text-sm text-error">
+                    {error}
+                  </p>
+                )}
+              </>
+            )}
+
+            <DialogFooter>
+              <Button
+                disabled={loadingData || markingDone}
+                onClick={() => onOpenChange(false)}
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={loadingData || markingDone}
+                onClick={handleContinue}
+              >
+                {incompleteTasks === 0 ? "Close Sprint" : "Continue"}
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+
+        {/* ── Step 2: Incomplete task strategy ────────────────────────────── */}
+        {step === 2 && (
+          <div className="space-y-5 py-1">
+            <div className="flex items-start gap-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2.5">
+              <WarningIcon
+                className="size-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5"
+                weight="fill"
+              />
+              <p className="text-sm text-amber-800 dark:text-amber-300">
+                <span className="font-semibold">{incompleteTasks}</span>{" "}
+                incomplete{" "}
+                {incompleteTasks === 1 ? "task remains" : "tasks remain"}.
+                Choose what to do with them.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>What should happen to incomplete tasks?</Label>
+              <RadioGroup
+                className="space-y-2 mt-2"
+                onValueChange={(v) => {
+                  setStrategy(v as IncompleteStrategy);
+                  setError(null);
+                }}
+                value={strategy}
+              >
+                {/* Move to Backlog */}
+                <label
+                  className="flex items-start gap-3 rounded-md border p-3 cursor-pointer hover:bg-base-200/50 transition-colors has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5"
+                  htmlFor="strat-backlog"
+                >
+                  <RadioGroupItem
+                    className="mt-0.5"
+                    id="strat-backlog"
+                    value="move_to_backlog"
+                  />
+                  <div>
+                    <p className="text-sm font-medium">Move to Backlog</p>
+                    <p className="text-xs text-base-content/60">
+                      Tasks are removed from the sprint and returned to the list
+                      backlog
+                    </p>
+                  </div>
+                </label>
+
+                {/* Move to Next Sprint */}
+                <label
+                  className="flex items-start gap-3 rounded-md border p-3 cursor-pointer hover:bg-base-200/50 transition-colors has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5"
+                  htmlFor="strat-next"
+                >
+                  <RadioGroupItem
+                    className="mt-0.5"
+                    id="strat-next"
+                    value="move_to_next_sprint"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium">Move to Next Sprint</p>
+                    <p className="text-xs text-base-content/60">
+                      {autoCreateNext
+                        ? "Tasks are carried over to the next sprint"
+                        : "Tasks are carried over to a planned sprint"}
+                    </p>
+                    {strategy === "move_to_next_sprint" && (
+                      <div className="mt-2">
+                        {loadingPlanned ? (
+                          <div className="h-8 w-full rounded-md bg-base-200 animate-pulse" />
+                        ) : plannedSprints.length === 0 ? (
+                          autoCreateNext ? (
+                            <p className="text-xs text-base-content/60">
+                              A new sprint will be created automatically and
+                              these tasks moved into it.
+                            </p>
+                          ) : (
+                            <p className="text-xs text-error">
+                              No planned sprint available — create one first
+                            </p>
+                          )
+                        ) : (
+                          <Select
+                            onValueChange={setTargetSprintId}
+                            value={targetSprintId}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue placeholder="Select a sprint…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {plannedSprints.map((s) => (
+                                <SelectItem key={s.id} value={s.id}>
+                                  {s.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </label>
+
+                {/* Leave as-is */}
+                <label
+                  className="flex items-start gap-3 rounded-md border p-3 cursor-pointer hover:bg-base-200/50 transition-colors has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5"
+                  htmlFor="strat-leave"
+                >
+                  <RadioGroupItem
+                    className="mt-0.5"
+                    id="strat-leave"
+                    value="leave_as_is"
+                  />
+                  <div>
+                    <p className="text-sm font-medium">Leave as-is</p>
+                    <p className="text-xs text-base-content/60">
+                      Tasks remain in the closed sprint for reference in sprint
+                      history
+                    </p>
+                  </div>
+                </label>
+              </RadioGroup>
+            </div>
+
+            {error && (
+              <p className="rounded-md bg-error/10 px-3 py-2 text-sm text-error">
+                {error}
+              </p>
+            )}
+
+            <DialogFooter>
+              <Button
+                disabled={closing}
+                onClick={() => setStep(1)}
+                variant="outline"
+              >
+                Back
+              </Button>
+              <Button
+                disabled={
+                  closing ||
+                  (strategy === "move_to_next_sprint" &&
+                    !autoCreateNext &&
+                    (plannedSprints.length === 0 || !targetSprintId))
+                }
+                onClick={() => void handleClose()}
+                variant="destructive"
+              >
+                {closing ? "Closing…" : "Close Sprint"}
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}

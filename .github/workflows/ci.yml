@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Typecheck, lint & build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      # The app must build. Placeholder env satisfies build-time validation
+      # (lib/env.ts); real values are provided at runtime. The production auth
+      # guard is skipped during `next build` (NEXT_PHASE).
+      #
+      # APP_URL is deliberately NOT set here: the build must never depend on a
+      # deployment's public URL, or a prebuilt image could not serve any domain.
+      # If this step ever starts requiring it, that guarantee has regressed.
+      - name: Build
+        run: pnpm build
+        env:
+          DATABASE_URL: postgresql://build:build@localhost:5432/build
+          APP_SECRET: build-time-placeholder-value-000000000000
+          NEXT_TELEMETRY_DISABLED: "1"
+
+      # Lint is intentionally ADVISORY (continue-on-error) for now.
+      #
+      # Why: the repository currently carries a large backlog of pre-existing
+      # lint findings from the strict Biome/ultracite config. Making lint a
+      # required gate today would fail every PR for reasons unrelated to the
+      # change under review. Running it here keeps the results visible so new
+      # issues are noticed, without blocking contributions.
+      #
+      # TODO: once the existing lint backlog has been cleared, remove
+      # `continue-on-error` below so lint becomes a required check like
+      # typecheck and build.
+      - name: Lint (advisory)
+        run: pnpm lint
+        continue-on-error: true
+
+  migrations:
+    name: Migrations apply cleanly
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Catches the failure mode that breaks self-hosters most often: a schema
+    # change committed without its generated migration, so `docker compose up`
+    # dies in the one-shot migrate service on a fresh install.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kanbanika_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run migrations against a fresh database
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kanbanika_ci
+
+      - name: Fail if the schema has uncommitted migrations
+        run: |
+          pnpm db:generate
+          if ! git diff --quiet --exit-code db/migrations; then
+            echo "::error::db/schema changed without a generated migration."
+            echo "Run 'pnpm db:generate' and commit the result in db/migrations/."
+            git diff --stat db/migrations
+            exit 1
+          fi
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kanbanika_ci
