@@ -1,0 +1,356 @@
+"use client";
+
+import {
+  CaretDownIcon,
+  CheckIcon,
+  FunnelIcon,
+  PlusIcon,
+} from "@phosphor-icons/react";
+import * as React from "react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { toggle } from "@/lib/filters/options";
+import { cn } from "@/lib/utils";
+
+export type FacetOption = {
+  value: string;
+  label: string;
+  /** Optional color dot (statuses, tags). */
+  color?: string;
+  /** Optional leading node (avatar, emoji icon). */
+  icon?: React.ReactNode;
+};
+
+/**
+ * The option list (with optional search + clear). Shared by FacetFilter (inside
+ * its Popover) and any panel that needs the same list inline — e.g. the omnibox
+ * "More filters" panel — so the list rendering lives in one place.
+ *
+ * `single` isn't just about the click behaviour: it also switches the indicator
+ * from a square checkbox to a round radio, so a field that holds exactly one
+ * value (Priority, Status, a SINGLE_SELECT custom field) never reads as a
+ * multi-select.
+ */
+export function FacetOptionList({
+  options,
+  selected,
+  onChange,
+  single = false,
+  searchable = false,
+  emptyText = "No options",
+  onAfterToggle,
+  onCreate,
+  searchPlaceholder = "Search…",
+  clearLabel = "Clear",
+  showClearDivider = false,
+  maxListHeight,
+}: {
+  options: FacetOption[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  single?: boolean;
+  searchable?: boolean;
+  emptyText?: string;
+  onAfterToggle?: () => void;
+  /** When set, an unmatched search query offers a "Create <query>" action. */
+  onCreate?: (label: string) => void;
+  /** Placeholder for the search input (only rendered when `searchable`). */
+  searchPlaceholder?: string;
+  /** Label for the "clear all" action shown once something is selected. */
+  clearLabel?: string;
+  /** Adds a divider above the clear action, separating it as a footer. */
+  showClearDivider?: boolean;
+  /** Fixed max-height (with scroll) for the option list, overriding the default item-count heuristic. */
+  maxListHeight?: string;
+}) {
+  const [query, setQuery] = React.useState("");
+
+  const filtered = React.useMemo(() => {
+    if (!searchable || !query.trim()) {
+      return options;
+    }
+    const q = query.trim().toLowerCase();
+    return options.filter((o) => o.label.toLowerCase().includes(q));
+  }, [options, query, searchable]);
+
+  const trimmedQuery = query.trim();
+  const hasExactMatch = options.some(
+    (o) => o.label.toLowerCase() === trimmedQuery.toLowerCase()
+  );
+  const canCreate = !!onCreate && trimmedQuery.length > 0 && !hasExactMatch;
+
+  function handleToggle(value: string) {
+    onChange(
+      single
+        ? selected.includes(value)
+          ? []
+          : [value]
+        : toggle(selected, value)
+    );
+    onAfterToggle?.();
+  }
+
+  function handleCreate() {
+    if (!onCreate || !trimmedQuery) {
+      return;
+    }
+    onCreate(trimmedQuery);
+    setQuery("");
+  }
+
+  return (
+    <div>
+      {searchable && (
+        <input
+          className="mb-1 w-full rounded-md border border-base-300 bg-base-100 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={searchPlaceholder}
+          value={query}
+        />
+      )}
+      <div
+        className={cn(
+          "space-y-0.5",
+          maxListHeight
+            ? "overflow-y-auto"
+            : filtered.length > 8 && "max-h-56 overflow-y-auto"
+        )}
+        style={maxListHeight ? { maxHeight: maxListHeight } : undefined}
+      >
+        {filtered.length === 0 ? (
+          canCreate ? null : (
+            <p className="px-2 py-1.5 text-xs text-base-content/60">
+              {emptyText}
+            </p>
+          )
+        ) : (
+          filtered.map((o) => {
+            const active = selected.includes(o.value);
+            return (
+              <button
+                aria-pressed={active}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-base-200"
+                key={o.value}
+                onClick={() => handleToggle(o.value)}
+                type="button"
+              >
+                {/* Visual indicator only — the row itself is the button, so a
+                    real (button-based) Checkbox/Radio here would nest buttons.
+                    Round dot for single-select, square tick for multi. */}
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center border border-base-300 transition-colors",
+                    single ? "rounded-full" : "rounded-none",
+                    active && "border-primary bg-primary text-primary-content"
+                  )}
+                >
+                  {active &&
+                    (single ? (
+                      <span className="size-1.5 rounded-full bg-primary-content" />
+                    ) : (
+                      <CheckIcon className="size-3" weight="bold" />
+                    ))}
+                </span>
+                {o.icon}
+                {o.color && (
+                  <span
+                    className="size-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: o.color }}
+                  />
+                )}
+                <span className="flex-1 truncate">{o.label}</span>
+              </button>
+            );
+          })
+        )}
+        {canCreate && (
+          <button
+            className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs text-primary hover:bg-base-200"
+            onClick={handleCreate}
+            type="button"
+          >
+            <PlusIcon className="size-3.5 shrink-0" />
+            <span className="truncate">Create “{trimmedQuery}”</span>
+          </button>
+        )}
+      </div>
+      {selected.length > 0 && !single && (
+        <>
+          {showClearDivider && <div className="my-1 h-px bg-base-300" />}
+          <button
+            className="mt-1 w-full rounded-md px-2 py-1 text-center text-xs text-base-content/60 hover:bg-base-200"
+            onClick={() => onChange([])}
+            type="button"
+          >
+            {clearLabel}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+interface FacetFilterProps {
+  align?: "start" | "center" | "end";
+  className?: string;
+  emptyText?: string;
+  icon?: React.ReactNode;
+  label: string;
+  onChange: (next: string[]) => void;
+  options: FacetOption[];
+  /** Show a search box to filter long option lists. */
+  searchable?: boolean;
+  selected: string[];
+  /** Single-select (radio-like) — e.g. Type, Due. Default multi-select. */
+  single?: boolean;
+}
+
+/**
+ * One reusable faceted-filter control: a chip trigger + a Popover checkbox list.
+ * Used by the list/board filter toolbars and the search omnibox so there is a
+ * single filter-dropdown implementation across the app.
+ */
+export function FacetFilter({
+  label,
+  icon,
+  options,
+  selected,
+  onChange,
+  single = false,
+  searchable = false,
+  align = "start",
+  emptyText = "No options",
+  className,
+}: FacetFilterProps) {
+  const [open, setOpen] = React.useState(false);
+
+  const count = selected.length;
+  const summary =
+    single && count === 1
+      ? (options.find((o) => o.value === selected[0])?.label ?? null)
+      : count > 0
+        ? `(${count})`
+        : null;
+
+  return (
+    <Popover onOpenChange={setOpen} open={open}>
+      <PopoverTrigger asChild>
+        <button
+          className={cn(
+            "flex h-8 shrink-0 select-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition-colors",
+            count > 0
+              ? "border-primary bg-primary/10 text-primary"
+              : "border-base-300 text-base-content/60 hover:bg-base-200 hover:text-base-content",
+            className
+          )}
+          type="button"
+        >
+          {icon}
+          {label}
+          {summary && <span className="font-bold">{summary}</span>}
+          <CaretDownIcon
+            className={cn(
+              "size-3 opacity-60 transition-transform duration-200",
+              open && "rotate-180"
+            )}
+          />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align={align} className="w-56 rounded-xl p-1.5">
+        <FacetOptionList
+          emptyText={emptyText}
+          onAfterToggle={() => {
+            if (single) {
+              setOpen(false);
+            }
+          }}
+          onChange={onChange}
+          options={options}
+          searchable={searchable}
+          selected={selected}
+          single={single}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export interface FacetFilterGroup {
+  key: string;
+  label: string;
+  onChange: (next: string[]) => void;
+  options: FacetOption[];
+  searchable?: boolean;
+  selected: string[];
+  single?: boolean;
+}
+
+/**
+ * Collapses several standalone `FacetFilter` buttons (Status/Priority/
+ * Assignee, ...) into one "Filters" entry point, each group under its own
+ * section label inside a single popover. Used at narrower toolbar widths
+ * where the individual buttons would otherwise wrap onto a second row —
+ * list-view.tsx / board-view.tsx swap between the two by breakpoint, they
+ * never render both at once for the same fields.
+ */
+export function CombinedFacetFilter({
+  groups,
+  className,
+}: {
+  groups: FacetFilterGroup[];
+  className?: string;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const totalCount = groups.reduce((sum, g) => sum + g.selected.length, 0);
+
+  return (
+    <Popover onOpenChange={setOpen} open={open}>
+      <PopoverTrigger asChild>
+        <button
+          className={cn(
+            "flex h-8 shrink-0 select-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition-colors",
+            totalCount > 0
+              ? "border-primary bg-primary/10 text-primary"
+              : "border-base-300 text-base-content/60 hover:bg-base-200 hover:text-base-content",
+            className
+          )}
+          type="button"
+        >
+          <FunnelIcon className="size-3.5" />
+          Filters
+          {totalCount > 0 && <span className="font-bold">({totalCount})</span>}
+          <CaretDownIcon
+            className={cn(
+              "size-3 opacity-60 transition-transform duration-200",
+              open && "rotate-180"
+            )}
+          />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="flex max-h-[75vh] w-64 flex-col gap-3 overflow-y-auto rounded-xl p-2"
+      >
+        {groups.map((group, i) => (
+          <div key={group.key}>
+            {i > 0 && <div className="mb-3 h-px bg-base-300" />}
+            <p className="mb-1 px-1 text-2xs font-bold uppercase tracking-wide text-base-content/60">
+              {group.label}
+            </p>
+            <FacetOptionList
+              onChange={group.onChange}
+              options={group.options}
+              searchable={group.searchable}
+              selected={group.selected}
+              single={group.single}
+            />
+          </div>
+        ))}
+      </PopoverContent>
+    </Popover>
+  );
+}

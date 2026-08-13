@@ -1,0 +1,57 @@
+"use client";
+
+import { PlusIcon, StackIcon } from "@phosphor-icons/react";
+import * as React from "react";
+import { CreateListModal } from "@/components/list/create-list-modal";
+import { Button } from "@/components/ui/button";
+import { useSetTopbar } from "@/lib/topbar-context";
+
+interface EmptySpaceProps {
+  canManage: boolean;
+  space: {
+    id: string;
+    name: string;
+    color: string | null;
+    logoEmoji: string | null;
+  };
+  workspaceId: string;
+}
+
+export function EmptySpace({ workspaceId, space, canManage }: EmptySpaceProps) {
+  const [createOpen, setCreateOpen] = React.useState(false);
+
+  useSetTopbar({
+    breadcrumbs: [
+      { label: space.name, color: space.color, emoji: space.logoEmoji },
+    ],
+    title: "Lists",
+  });
+
+  return (
+    <div className="flex h-full flex-col items-center justify-center px-6 py-16 text-center">
+      <div className="flex size-14 items-center justify-center rounded-xl bg-base-200 text-base-content/60">
+        <StackIcon className="size-7" />
+      </div>
+      <h2 className="mt-5 text-lg font-semibold text-base-content">
+        This Space has no Lists yet
+      </h2>
+      <p className="mt-1.5 max-w-sm text-sm text-base-content/60">
+        Lists are where tasks live — create one to get started.
+      </p>
+      {canManage && (
+        <Button className="mt-6 rounded-md" onClick={() => setCreateOpen(true)}>
+          <PlusIcon className="size-4" weight="bold" /> Create a List
+        </Button>
+      )}
+
+      {createOpen && (
+        <CreateListModal
+          onOpenChange={setCreateOpen}
+          open={createOpen}
+          spaceId={space.id}
+          workspaceId={workspaceId}
+        />
+      )}
+    </div>
+  );
+}

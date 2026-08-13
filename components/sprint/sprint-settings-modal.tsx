@@ -1,0 +1,427 @@
+"use client";
+
+import { GearIcon } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
+import {
+  getSprintSettings,
+  type SprintSettings,
+  saveSprintSettings,
+} from "@/app/actions/sprint";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface SprintSettingsModalProps {
+  /** If true, shows "First time setup" heading */
+  isFirstTime?: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Called after settings are saved — proceed to create-sprint if desired */
+  onSaved: (settings: SprintSettings) => void;
+  open: boolean;
+  spaceId: string;
+  spaceName?: string;
+  workspaceId: string;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const DAY_NAMES = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+
+const NAME_FORMATS = [
+  { value: "Sprint {n}", label: "Sprint {n}" },
+  { value: "Week {n}", label: "Week {n}" },
+  { value: "Iteration {n}", label: "Iteration {n}" },
+  { value: "{project} Sprint {n}", label: "{project} Sprint {n}" },
+];
+
+const DATE_FORMATS = [
+  { value: "MM/DD", label: "MM/DD", example: "06/22" },
+  { value: "DD/MM", label: "DD/MM", example: "22/06" },
+  { value: "MM/DD/YY", label: "MM/DD/YY", example: "06/22/25" },
+  { value: "DD/MM/YY", label: "DD/MM/YY", example: "22/06/25" },
+  { value: "YYYY/MM/DD", label: "YYYY/MM/DD", example: "2025/06/22" },
+];
+
+function previewName(format: string, n: number, projectName: string): string {
+  return format
+    .replace("{n}", String(n))
+    .replace("{project}", projectName || "Project");
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export function SprintSettingsModal({
+  open,
+  onOpenChange,
+  workspaceId,
+  spaceId,
+  spaceName = "Project",
+  onSaved,
+  isFirstTime = false,
+}: SprintSettingsModalProps) {
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Settings state
+  const [startDay, setStartDay] = useState<number>(1); // Monday default
+  const [durationWeeks, setDurationWeeks] = useState<number>(2);
+  const [nameFormat, setNameFormat] = useState<string>("Sprint {n}");
+  const [dateFormat, setDateFormat] = useState<string>("MM/DD");
+  const [autoMarkDone, setAutoMarkDone] = useState(false);
+  const [autoCreateNext, setAutoCreateNext] = useState(false);
+  const [autoMoveIncomplete, setAutoMoveIncomplete] = useState(false);
+  const [autoArchiveAfterN, setAutoArchiveAfterN] = useState<number | null>(
+    null
+  );
+  const [archiveEnabled, setArchiveEnabled] = useState(false);
+
+  // Load existing settings
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    getSprintSettings(workspaceId, spaceId).then((result) => {
+      setLoading(false);
+      if ("error" in result) {
+        return;
+      }
+      setStartDay(result.sprintStartDay ?? 1);
+      setDurationWeeks(result.sprintDefaultDurationWeeks);
+      setNameFormat(result.sprintNameFormat);
+      setDateFormat(result.sprintDateFormat);
+      setAutoMarkDone(result.sprintAutoMarkDone);
+      setAutoCreateNext(result.sprintAutoCreateNext);
+      setAutoMoveIncomplete(result.sprintAutoMoveIncomplete);
+      const n = result.sprintAutoArchiveAfterN;
+      setArchiveEnabled(n !== null);
+      setAutoArchiveAfterN(n ?? 3);
+    });
+  }, [open, workspaceId, spaceId]);
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+
+    const settings: SprintSettings = {
+      sprintStartDay: startDay,
+      sprintDefaultDurationWeeks: durationWeeks,
+      sprintNameFormat: nameFormat,
+      sprintDateFormat: dateFormat,
+      sprintAutoMarkDone: autoMarkDone,
+      sprintAutoCreateNext: autoCreateNext,
+      sprintAutoMoveIncomplete: autoCreateNext ? autoMoveIncomplete : false,
+      sprintAutoArchiveAfterN: archiveEnabled ? (autoArchiveAfterN ?? 3) : null,
+    };
+
+    const result = await saveSprintSettings(workspaceId, spaceId, settings);
+    setSaving(false);
+
+    if ("error" in result) {
+      setError(result.error);
+      return;
+    }
+
+    onSaved(settings);
+    onOpenChange(false);
+  }
+
+  const namePreview = previewName(nameFormat, 1, spaceName);
+  const namePreview2 = previewName(nameFormat, 2, spaceName);
+
+  return (
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent className="sm:max-w-[560px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <GearIcon className="size-4 text-primary" weight="fill" />
+            {isFirstTime ? "Sprint Setup" : "Sprint Settings"}
+          </DialogTitle>
+          {isFirstTime && (
+            <p className="text-sm text-base-content/60 mt-1">
+              Configure how sprints work in{" "}
+              <span className="font-medium text-base-content">{spaceName}</span>
+              . You can change these later in project settings.
+            </p>
+          )}
+        </DialogHeader>
+
+        {loading ? (
+          <div className="py-8 text-center text-sm text-base-content/60">
+            Loading…
+          </div>
+        ) : (
+          <div className="space-y-6 py-1">
+            {/* Sprint cadence */}
+            <div className="space-y-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+                Schedule
+              </h3>
+
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Sprint starts on</Label>
+                  <Select
+                    onValueChange={(v) => setStartDay(Number(v))}
+                    value={String(startDay)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="p-1.5">
+                      {DAY_NAMES.map((day, i) => (
+                        <SelectItem key={day} value={String(i)}>
+                          {day}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Default duration</Label>
+                  <Select
+                    onValueChange={(v) => setDurationWeeks(Number(v))}
+                    value={String(durationWeeks)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="p-1.5">
+                      <SelectItem value="1">1 week</SelectItem>
+                      <SelectItem value="2">2 weeks</SelectItem>
+                      <SelectItem value="3">3 weeks</SelectItem>
+                      <SelectItem value="4">4 weeks</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+
+            {/* Naming */}
+            <div className="space-y-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+                Naming
+              </h3>
+
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Sprint name format</Label>
+                  <Select onValueChange={setNameFormat} value={nameFormat}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="p-1.5">
+                      {NAME_FORMATS.map((f) => (
+                        <SelectItem key={f.value} value={f.value}>
+                          {f.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Date format</Label>
+                  <Select onValueChange={setDateFormat} value={dateFormat}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="p-1.5">
+                      {DATE_FORMATS.map((f) => (
+                        <SelectItem key={f.value} value={f.value}>
+                          <span>{f.label}</span>
+                          <span className="ml-2 text-base-content/60 text-xs">
+                            {f.example}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <p className="text-xs text-base-content/60">
+                Name preview:{" "}
+                <span className="font-medium text-base-content">
+                  {namePreview}
+                </span>
+                {", "}
+                <span className="font-medium text-base-content">
+                  {namePreview2}
+                </span>
+                {", …"}
+              </p>
+            </div>
+
+            {/* Automations */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+                Automations
+              </h3>
+
+              <div className="space-y-3 rounded-md border border-base-300 p-3">
+                {/* Auto-mark done */}
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium">
+                      Auto-mark sprint as done
+                    </p>
+                    <p className="text-xs text-base-content/60">
+                      Automatically close the sprint when its end date passes
+                    </p>
+                  </div>
+                  <Switch
+                    checked={autoMarkDone}
+                    onCheckedChange={setAutoMarkDone}
+                  />
+                </div>
+
+                <div className="h-px bg-base-300" />
+
+                {/* Auto-create next */}
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium">
+                      Auto-create next sprint
+                    </p>
+                    <p className="text-xs text-base-content/60">
+                      When a sprint is completed, automatically create the next
+                      one
+                    </p>
+                  </div>
+                  <Switch
+                    checked={autoCreateNext}
+                    onCheckedChange={(v) => {
+                      setAutoCreateNext(v);
+                      if (!v) {
+                        setAutoMoveIncomplete(false);
+                      }
+                    }}
+                  />
+                </div>
+
+                {/* Auto-move incomplete */}
+                {autoCreateNext && (
+                  <div className="ml-4 flex items-start justify-between gap-3 border-l-2 border-base-300 pl-4">
+                    <div>
+                      <p className="text-sm font-medium">
+                        Move incomplete tasks to next sprint
+                      </p>
+                      <p className="text-xs text-base-content/60">
+                        Unfinished tasks carry over automatically
+                      </p>
+                    </div>
+                    <Switch
+                      checked={autoMoveIncomplete}
+                      onCheckedChange={setAutoMoveIncomplete}
+                    />
+                  </div>
+                )}
+
+                <div className="h-px bg-base-300" />
+
+                {/* Auto-archive */}
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium">
+                      Auto-archive old sprints
+                    </p>
+                    <p className="text-xs text-base-content/60">
+                      Keep the sidebar clean by archiving completed sprints
+                    </p>
+                  </div>
+                  <Switch
+                    checked={archiveEnabled}
+                    onCheckedChange={(v) => {
+                      setArchiveEnabled(v);
+                      if (v && autoArchiveAfterN === null) {
+                        setAutoArchiveAfterN(3);
+                      }
+                    }}
+                  />
+                </div>
+
+                {archiveEnabled && (
+                  <div className="ml-4 flex flex-wrap items-center gap-2 border-l-2 border-base-300 pl-4">
+                    <p className="text-sm text-base-content/60 shrink-0">
+                      Keep last
+                    </p>
+                    <Input
+                      className="w-16 h-8 text-center"
+                      max={20}
+                      min={1}
+                      onChange={(e) =>
+                        setAutoArchiveAfterN(
+                          Math.max(1, Math.min(20, Number(e.target.value)))
+                        )
+                      }
+                      type="number"
+                      value={autoArchiveAfterN ?? 3}
+                    />
+                    <p className="text-sm text-base-content/60 shrink-0">
+                      sprints visible
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {error && (
+              <p className="rounded-md bg-error/10 px-3 py-2 text-sm text-error">
+                {error}
+              </p>
+            )}
+          </div>
+        )}
+
+        <DialogFooter>
+          {!isFirstTime && (
+            <Button
+              disabled={saving}
+              onClick={() => onOpenChange(false)}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+          )}
+          <Button disabled={saving || loading} onClick={handleSave}>
+            {saving
+              ? "Saving…"
+              : isFirstTime
+                ? "Save & Continue"
+                : "Save Settings"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

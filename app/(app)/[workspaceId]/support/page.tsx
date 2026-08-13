@@ -1,0 +1,252 @@
+"use client";
+
+import Link from "next/link";
+import { use, useState } from "react";
+import useSWR from "swr";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+
+const fetcher = (url: string) => fetch(url).then((r) => r.json());
+
+const STATUS_COLORS: Record<string, "default" | "secondary" | "outline"> = {
+  OPEN: "default",
+  IN_PROGRESS: "secondary",
+  CLOSED: "outline",
+};
+
+const STATUS_TABS = [
+  { key: "", label: "All" },
+  { key: "OPEN", label: "Open" },
+  { key: "IN_PROGRESS", label: "In Progress" },
+  { key: "CLOSED", label: "Closed" },
+];
+
+const CATEGORIES = ["GENERAL", "TASKS", "BILLING", "TECHNICAL", "OTHER"];
+
+interface SupportTicket {
+  category: string;
+  id: string;
+  status: string;
+  subject: string;
+  ticketNumber: string;
+  updatedAt: string;
+}
+
+export default function SupportPage({
+  params,
+}: {
+  params: Promise<{ workspaceId: string }>;
+}) {
+  const { workspaceId } = use(params);
+  const [status, setStatus] = useState("");
+  const [showNew, setShowNew] = useState(false);
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [category, setCategory] = useState("GENERAL");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const params2 = new URLSearchParams();
+  if (status) {
+    params2.set("status", status);
+  }
+  const { data, isLoading, mutate } = useSWR(
+    `/api/support/tickets?${params2}`,
+    fetcher
+  );
+  const tickets: SupportTicket[] = data?.tickets ?? [];
+  const _total: number = data?.total ?? 0;
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/support/tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject, body, category }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error ?? "Failed to submit ticket");
+        return;
+      }
+      setShowNew(false);
+      setSubject("");
+      setBody("");
+      setCategory("GENERAL");
+      await mutate();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight">Support</h1>
+          <p className="text-sm text-base-content/60 mt-0.5">
+            Submit a request or view your existing tickets
+          </p>
+        </div>
+        <Button onClick={() => setShowNew(true)}>New Ticket</Button>
+      </div>
+
+      {/* Status filter */}
+      <div className="flex items-center gap-1 overflow-x-auto">
+        {STATUS_TABS.map((tab) => {
+          const active = status === tab.key;
+          return (
+            <button
+              className={cn(
+                "flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
+                active
+                  ? "bg-base-200 text-base-content"
+                  : "text-base-content/60 hover:bg-base-200/60 hover:text-base-content"
+              )}
+              key={tab.key}
+              onClick={() => setStatus(tab.key)}
+              type="button"
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Ticket list */}
+      <div className="rounded-lg border overflow-hidden">
+        {isLoading ? (
+          <div className="py-12 text-center text-sm text-base-content/60">
+            Loading…
+          </div>
+        ) : tickets.length === 0 ? (
+          <div className="py-12 text-center text-sm text-base-content/60">
+            {status
+              ? "No tickets with that status."
+              : "No support tickets yet. Submit one above."}
+          </div>
+        ) : (
+          <div className="divide-y">
+            {tickets.map((t) => (
+              <Link
+                className="flex items-center justify-between gap-3 px-3 py-3 hover:bg-base-200/30 transition-colors sm:px-4"
+                href={`/${workspaceId}/support/${t.id}`}
+                key={t.id}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="font-mono text-xs text-base-content/60">
+                      {t.ticketNumber}
+                    </span>
+                    <Badge
+                      className="text-xs"
+                      variant={STATUS_COLORS[t.status] ?? "secondary"}
+                    >
+                      {t.status.replace("_", " ")}
+                    </Badge>
+                    <span className="text-xs text-base-content/60">
+                      {t.category}
+                    </span>
+                  </div>
+                  <p className="text-sm font-medium mt-0.5 truncate">
+                    {t.subject}
+                  </p>
+                </div>
+                <span className="text-xs text-base-content/60 shrink-0">
+                  {new Date(t.updatedAt).toLocaleDateString()}
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* New ticket dialog */}
+      <Dialog onOpenChange={setShowNew} open={showNew}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>New Support Ticket</DialogTitle>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            <div className="space-y-1.5">
+              <Label htmlFor="subject">Subject</Label>
+              <Input
+                id="subject"
+                maxLength={200}
+                minLength={5}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Briefly describe your issue"
+                required
+                value={subject}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="category">Category</Label>
+              <Select onValueChange={setCategory} value={category}>
+                <SelectTrigger id="category">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CATEGORIES.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c.charAt(0) + c.slice(1).toLowerCase()}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="body">Description</Label>
+              <Textarea
+                id="body"
+                maxLength={5000}
+                minLength={20}
+                onChange={(e) => setBody(e.target.value)}
+                placeholder="Describe the issue in detail (20–5000 characters)"
+                required
+                rows={5}
+                value={body}
+              />
+              <p className="text-xs text-base-content/60 text-right">
+                {body.length}/5000
+              </p>
+            </div>
+            {error && <p className="text-sm text-error">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <Button
+                onClick={() => setShowNew(false)}
+                type="button"
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button disabled={submitting} type="submit">
+                {submitting ? "Submitting…" : "Submit Ticket"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

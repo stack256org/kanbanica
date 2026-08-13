@@ -1,0 +1,92 @@
+import { and, asc, eq, inArray } from "drizzle-orm";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { OnboardingWizard } from "@/components/workspace/onboarding-wizard";
+import { PRODUCT_NAME } from "@/config/platform";
+import { list, workspace, workspaceMember } from "@/db/schema";
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { getAccessibleSpaceIds } from "@/lib/permissions";
+
+export const metadata = { title: `Get started — ${PRODUCT_NAME}` };
+
+interface OnboardingPageProps {
+  searchParams: Promise<{ new?: string }>;
+}
+
+export default async function OnboardingPage({
+  searchParams,
+}: OnboardingPageProps) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) {
+    redirect("/login");
+  }
+
+  const { new: createNew } = await searchParams;
+  if (createNew === "1") {
+    return (
+      <div className="force-light flex h-full overflow-auto items-center justify-center bg-[#F2F2F2] p-4 sm:p-6">
+        <OnboardingWizard
+          existingWorkspace={null}
+          userName={session.user.name ?? ""}
+        />
+      </div>
+    );
+  }
+
+  const [membership] = await db
+    .select({
+      workspaceId: workspaceMember.workspaceId,
+      workspaceName: workspace.name,
+      role: workspaceMember.role,
+    })
+    .from(workspaceMember)
+    .innerJoin(workspace, eq(workspaceMember.workspaceId, workspace.id))
+    .where(
+      and(
+        eq(workspaceMember.userId, session.user.id),
+        eq(workspaceMember.status, "ACTIVE"),
+        eq(workspace.status, "ACTIVE")
+      )
+    )
+    .orderBy(asc(workspaceMember.createdAt))
+    .limit(1);
+
+  if (membership) {
+    const spaceIds = await getAccessibleSpaceIds(
+      session.user.id,
+      membership.workspaceId
+    );
+    if (spaceIds.length > 0) {
+      const [firstList] = await db
+        .select({ id: list.id, spaceId: list.spaceId })
+        .from(list)
+        .where(and(inArray(list.spaceId, spaceIds), eq(list.isArchived, false)))
+        .orderBy(asc(list.createdAt))
+        .limit(1);
+      if (firstList) {
+        redirect(
+          `/${membership.workspaceId}/${firstList.spaceId}/list/${firstList.id}`
+        );
+      }
+    }
+    // A guest can't create projects, so the onboarding wizard is a dead end for
+    // them. Send them into their workspace (empty state) instead of the wizard.
+    if (membership.role === "GUEST") {
+      redirect(`/${membership.workspaceId}`);
+    }
+  }
+
+  return (
+    <div className="force-light flex h-full overflow-auto items-center justify-center bg-[#F2F2F2] p-4 sm:p-6">
+      <OnboardingWizard
+        existingWorkspace={
+          membership
+            ? { id: membership.workspaceId, name: membership.workspaceName }
+            : null
+        }
+        userName={session.user.name ?? ""}
+      />
+    </div>
+  );
+}
