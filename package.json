@@ -83,7 +83,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
     "drizzle-orm": "^0.45.2",
-    "files-sdk": "^1.9.0",
+    "files-sdk": "^2.2.3",
     "framer-motion": "^12.40.0",
     "next": "16.2.9",
     "next-themes": "^0.4.6",
