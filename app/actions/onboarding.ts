@@ -2,7 +2,7 @@
 
 import { createId } from "@paralleldrive/cuid2";
 import { and, count, eq } from "drizzle-orm";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { PRODUCT_NAME } from "@/config/platform";
@@ -22,6 +22,7 @@ import {
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getWorkspaceMembership } from "@/lib/permissions";
+import { parseThemeCookie, THEME_COOKIE } from "@/lib/theme";
 
 const DEFAULT_STATUSES = [
   {
@@ -145,6 +146,10 @@ export async function createOnboardingWorkspace(input: {
   const slug = await generateUniqueSlug(name);
   const workspaceId = createId();
 
+  const { theme } = parseThemeCookie(
+    (await cookies()).get(THEME_COOKIE)?.value
+  );
+
   await db.transaction(async (tx) => {
     await tx.insert(workspace).values({
       id: workspaceId,
@@ -152,6 +157,7 @@ export async function createOnboardingWorkspace(input: {
       slug,
       logoEmoji: logoEmoji ?? null,
       createdBy: user.id,
+      theme,
     });
 
     await tx.insert(workspaceMember).values({

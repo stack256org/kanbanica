@@ -18,6 +18,7 @@ import {
 } from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
+import { updateAppearanceMode } from "@/app/actions/profile";
 import { createFirstAdmin } from "@/app/actions/setup";
 import { GoogleOAuthSettingsForm } from "@/components/orbit/integrations/google-oauth-settings-form";
 import { IntegrationConfigCard } from "@/components/orbit/integrations/integration-config-card";
@@ -203,6 +204,8 @@ export function SetupWizard() {
       router.push("/login");
       return;
     }
+
+    await updateAppearanceMode(appearance);
     setSubmitting(false);
     setStep("services");
   }
@@ -431,6 +434,7 @@ export function SetupWizard() {
                   title="Email (SMTP)"
                 >
                   <SmtpSettingsForm
+                    bare
                     initial={EMPTY_INTEGRATION_SETTINGS.smtp}
                     onSaved={handleSaved(setSmtpConfigured)}
                   />
@@ -449,6 +453,7 @@ export function SetupWizard() {
                   title="Google OAuth"
                 >
                   <GoogleOAuthSettingsForm
+                    bare
                     initial={EMPTY_INTEGRATION_SETTINGS.google}
                     onSaved={handleSaved(setGoogleConfigured)}
                   />
@@ -465,6 +470,7 @@ export function SetupWizard() {
                   title="File Storage"
                 >
                   <StorageSettingsForm
+                    bare
                     initial={EMPTY_INTEGRATION_SETTINGS.storage}
                     onSaved={handleSaved(setStorageConfigured)}
                   />
@@ -481,6 +487,7 @@ export function SetupWizard() {
                   title="Web Push"
                 >
                   <WebPushSettingsForm
+                    bare
                     initial={EMPTY_INTEGRATION_SETTINGS.webPush}
                     onSaved={handleSaved(setWebPushConfigured)}
                   />

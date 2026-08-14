@@ -25,23 +25,16 @@ type Storage = IntegrationSettingsSummary["storage"];
 type Driver = Storage["driver"];
 
 interface Props {
+  bare?: boolean;
   initial: Storage;
-  /** Controlled open state, forwarded to IntegrationCard — see its docs.
-   * Unused by the setup wizard (rendered standalone inside a dialog). */
   onOpenChange?: (open: boolean) => void;
-  /** Notified with the new configured state after a successful save —
-   * lets a compact summary card (e.g. the setup wizard) stay in sync without
-   * re-fetching. Unused on /orbit/integrations. */
   onSaved?: (configured: boolean) => void;
   open?: boolean;
-  /** Whether the *resolved* s3/r2 config (DB, falling back to .env) is
-   * usable — see isStorageConfiguredViaS3() (lib/integration-settings.ts).
-   * Defaults to false, which is correct for the setup wizard. Local disk
-   * doesn't need this: it's always usable with zero setup. */
   resolvedConfiguredViaS3?: boolean;
 }
 
 export function StorageSettingsForm({
+  bare = false,
   initial,
   onSaved,
   open,
@@ -62,9 +55,6 @@ export function StorageSettingsForm({
   const [testing, setTesting] = useState(false);
   const [testFailed, setTestFailed] = useState(false);
 
-  // Local disk works with zero setup, so it counts as "configured" on its
-  // own; an s3/r2 driver additionally needs a bucket + credentials before
-  // it's actually usable — either saved here or resolved via .env.
   const dbConfiguredS3 =
     driver !== "local" &&
     !!(bucket && accessKeyId && (hasSecretAccessKey || secretAccessKey));
@@ -132,6 +122,7 @@ export function StorageSettingsForm({
 
   return (
     <IntegrationCard
+      bare={bare}
       description="Where avatars and task attachments are stored. Local disk needs no setup but requires a persistent Docker volume; S3/R2 survive host loss and work across replicas."
       icon={<CloudIcon className="size-4.5" />}
       note={usingEnv ? ENV_OVERRIDE_NOTE : undefined}
