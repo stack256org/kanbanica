@@ -17,23 +17,16 @@ import { ENV_OVERRIDE_NOTE } from "./integration-status-badge";
 type Smtp = IntegrationSettingsSummary["smtp"];
 
 interface Props {
+  bare?: boolean;
   initial: Smtp;
-  /** Controlled open state, forwarded to IntegrationCard — see its docs.
-   * Unused by the setup wizard (rendered standalone inside a dialog). */
   onOpenChange?: (open: boolean) => void;
-  /** Notified with the new configured state after a successful save/remove —
-   * lets a compact summary card (e.g. the setup wizard) stay in sync without
-   * re-fetching. Unused on /orbit/integrations. */
   onSaved?: (configured: boolean) => void;
   open?: boolean;
-  /** Whether the *resolved* config (DB, falling back to .env) is usable —
-   * see isSmtpConfigured() (lib/integration-settings.ts). Defaults to false,
-   * which is correct for the setup wizard (nothing's booted yet to read
-   * .env against). */
   resolvedConfigured?: boolean;
 }
 
 export function SmtpSettingsForm({
+  bare = false,
   initial,
   onSaved,
   open,
@@ -145,6 +138,7 @@ export function SmtpSettingsForm({
 
   return (
     <IntegrationCard
+      bare={bare}
       description="Send magic links, invites, and notification emails. Without it, emails are logged instead of delivered."
       icon={<EnvelopeSimpleIcon className="size-4.5" />}
       note={usingEnv ? ENV_OVERRIDE_NOTE : undefined}

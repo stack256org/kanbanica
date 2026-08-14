@@ -18,30 +18,17 @@ const RESTART_NOTE =
   "Changes here take effect after the app restarts — the login page reads Google credentials once at server startup, not per request.";
 
 interface Props {
-  /** Whether the currently *saved* credentials match what the running server
-   * process actually loaded at boot (`isGoogleOAuthLive()`, lib/auth.ts) —
-   * lets the badge read "Connected" once a restart has genuinely picked up
-   * the latest values, instead of always reading "Restart required" for any
-   * saved config. Defaults to false (i.e. "assume a restart is still
-   * pending") — correct for the setup wizard, which saves before the first
-   * boot has even happened. */
+  bare?: boolean;
   googleOAuthLive?: boolean;
   initial: Google;
-  /** Controlled open state, forwarded to IntegrationCard — see its docs.
-   * Unused by the setup wizard (rendered standalone inside a dialog). */
   onOpenChange?: (open: boolean) => void;
-  /** Notified with the new configured state after a successful save/remove —
-   * lets a compact summary card (e.g. the setup wizard) stay in sync without
-   * re-fetching. Unused on /orbit/integrations. */
   onSaved?: (configured: boolean) => void;
   open?: boolean;
-  /** Whether the *resolved* config (DB, falling back to .env) is usable —
-   * see isGoogleOAuthConfigured() (lib/integration-settings.ts). Defaults to
-   * false, which is correct for the setup wizard. */
   resolvedConfigured?: boolean;
 }
 
 export function GoogleOAuthSettingsForm({
+  bare = false,
   initial,
   onSaved,
   open,
@@ -121,6 +108,7 @@ export function GoogleOAuthSettingsForm({
 
   return (
     <IntegrationCard
+      bare={bare}
       description='Enables the "Continue with Google" button on sign-in.'
       icon={<GoogleLogoIcon className="size-4.5" />}
       note={usingEnv ? ENV_OVERRIDE_NOTE : RESTART_NOTE}
