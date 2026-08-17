@@ -30,6 +30,8 @@ dated section, e.g.:
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-17
+
 ### Added
 - Open-source release preparation: `LICENSE` (MIT), `README`, `CONTRIBUTING`,
   `SECURITY`, `CODE_OF_CONDUCT`, issue/PR templates, and CI (typecheck + build).
